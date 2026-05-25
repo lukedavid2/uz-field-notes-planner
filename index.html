@@ -169,10 +169,13 @@
   .fld textarea{resize:vertical;min-height:74px;line-height:1.55}
   .fld select:focus,.fld textarea:focus,.fld input:focus{outline:none;border-color:var(--gold)}
   .cnt{float:right;font-weight:600;font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0}
-  .rel-head,.rel-row{display:grid;grid-template-columns:104px 1fr 158px;gap:8px}
-  .rel-row{margin-bottom:8px}
+  .rel-head,.rel-row{display:grid;grid-template-columns:98px 1fr 148px 30px;gap:7px}
+  .rel-row{margin-bottom:7px}
   .rel-head{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
     color:var(--faint);margin-bottom:5px;padding:0 2px}
+  .rel-x{background:var(--card);color:var(--faint);border:1px solid var(--line);border-radius:7px;
+    font-size:15px;line-height:1;padding:0}
+  .rel-x:hover{color:var(--sr);border-color:var(--sr)}
   .kw-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
   .kw-chip{background:rgba(212,167,69,.12);border:1px solid var(--line2);color:var(--gold-dim);
     font-size:11.5px;padding:3px 9px;border-radius:20px}
@@ -406,14 +409,19 @@ const App={
       '<button class="xbtn" onclick="App.closeModal()">×</button></div>'+
       '<div class="tabs">'+
         '<button class="tab is-active" onclick="App.tab(this,\'copy\')">Copy</button>'+
-        '<button class="tab" onclick="App.tab(this,\'links\')">Up next &amp; related</button>'+
+        '<button class="tab" onclick="App.tab(this,\'preview\')">Preview</button>'+
+        '<button class="tab" onclick="App.tab(this,\'links\')">Links</button>'+
         '<button class="tab" onclick="App.tab(this,\'seo\')">SEO</button>'+
         '<button class="tab" onclick="App.tab(this,\'sched\')">Schedule</button>'+
       '</div>'+
       '<div class="modal-b">'+
         '<div class="tabpanel" data-p="copy">'+
-          '<div class="ed-hint">Click into the article below and edit the copy directly — changes commit when you press Save.</div>'+
+          '<div class="ed-hint">Click into the article and edit copy directly. Switch to Preview for a clean view — changes commit when you press Save.</div>'+
           '<iframe class="prev-frame ed-frame" id="prevFrame"></iframe>'+
+        '</div>'+
+        '<div class="tabpanel hidden" data-p="preview">'+
+          '<div class="ed-hint">A clean preview — exactly how the article will look live, including edits you have not saved yet.</div>'+
+          '<iframe class="prev-frame ed-frame" id="prevView"></iframe>'+
         '</div>'+
         '<div class="tabpanel hidden" data-p="links" id="panLinks"></div>'+
         '<div class="tabpanel hidden" data-p="seo" id="panSeo"></div>'+
@@ -444,6 +452,7 @@ const App={
   tab(btn,name){
     document.querySelectorAll('.modal .tab').forEach(t=>t.classList.toggle('is-active',t===btn));
     document.querySelectorAll('.modal .tabpanel').forEach(p=>p.classList.toggle('hidden',p.dataset.p!==name));
+    if(name==='preview') this.renderPreviewFrame();
   },
 
   schedPanel(p){
@@ -527,26 +536,41 @@ const App={
 
   /* ---- editor panels ---- */
   linksPanel(parsed,p){
-    const opts='<option value="">— none —</option>'+this.queue.posts.filter(x=>x.id!==p.id)
+    const opts='<option value="">— none (no Up-next card) —</option>'+this.queue.posts.filter(x=>x.id!==p.id)
       .map(x=>'<option value="'+x.id+'"'+(x.slug===parsed.nextSlug?' selected':'')+'>'+
         this.esc(x.title)+'</option>').join('');
-    let rows='';
-    for(let i=0;i<3;i++){
-      const r=parsed.related[i]||{cat:'',title:'',url:''};
-      rows+='<div class="rel-row">'+
-        '<input type="text" id="edRelC'+i+'" value="'+this.esc(r.cat)+'" placeholder="Theory">'+
-        '<input type="text" id="edRelT'+i+'" value="'+this.esc(r.title)+'" placeholder="Article title">'+
-        '<input type="text" id="edRelU'+i+'" value="'+this.esc(r.url)+'" placeholder="/blog/slug/ or #">'+
-        '</div>';
-    }
+    const rows=parsed.related.map(r=>this.relRowHTML(r)).join('');
     return '<div class="fld"><label>Up next</label>'+
-      '<div class="fielddesc">The headline "read next" card at the foot of this article.</div>'+
+      '<div class="fielddesc">The headline "read next" card at the foot of this article. '+
+      'Choose "— none —" to drop the Up-next card entirely.</div>'+
       '<select id="edNext">'+opts+'</select></div>'+
       '<div class="fld"><label>Related reading</label>'+
-      '<div class="fielddesc">Up to three links below the Up-next card. Leave a row blank to drop it; '+
-      'a URL can point at another article or stay "#" until that piece exists.</div>'+
-      '<div class="rel-head"><span>Category</span><span>Title</span><span>URL</span></div>'+
-      rows+'</div>';
+      '<div class="fielddesc">Links shown below the Up-next card. Remove any with × — remove them '+
+      'all and the Related-reading block is dropped from the article. A URL can point at another '+
+      'article or stay "#" until that piece exists.</div>'+
+      '<div class="rel-head"><span>Category</span><span>Title</span><span>URL</span><span></span></div>'+
+      '<div id="relRows">'+rows+'</div>'+
+      '<button class="btn ghost sm" onclick="App.addRelRow()" style="margin-top:6px">+ Add a related link</button>'+
+      '</div>';
+  },
+  relRowHTML(r){
+    r=r||{cat:'',title:'',url:''};
+    return '<div class="rel-row">'+
+      '<input type="text" class="relC" value="'+this.esc(r.cat)+'" placeholder="Theory">'+
+      '<input type="text" class="relT" value="'+this.esc(r.title)+'" placeholder="Article title">'+
+      '<input type="text" class="relU" value="'+this.esc(r.url)+'" placeholder="/blog/slug/ or #">'+
+      '<button class="rel-x" onclick="App.removeRelRow(this)" title="Remove this link">×</button>'+
+      '</div>';
+  },
+  addRelRow(){
+    const c=document.getElementById('relRows'); if(!c) return;
+    c.insertAdjacentHTML('beforeend',this.relRowHTML());
+    c.lastElementChild.querySelectorAll('input').forEach(el=>el.addEventListener('input',()=>App.markDirty()));
+    this.markDirty();
+  },
+  removeRelRow(btn){
+    const row=btn.closest('.rel-row'); if(row) row.remove();
+    this.markDirty();
   },
   seoPanel(parsed,p){
     const cats=['Theory','Process','Lyrics','Inspiration'];
@@ -612,23 +636,38 @@ const App={
   gv(id){ const el=document.getElementById(id); return el?el.value:''; },
 
   /* ---- save: splice edits into the original file, then commit ---- */
+  buildSource(){
+    const e=this.editing; if(!e) return '';
+    let src=e.source;
+    src=this.applySeo(src,{cat:this.gv('edCat'),desc:this.gv('edDesc'),kw:this.gv('edKw')});
+    src=this.applyFoot(src);
+    const fr=document.getElementById('prevFrame');
+    const fd=fr&&fr.contentDocument;
+    if(fd){
+      const lede=fd.querySelector('.fn-lede'), body=fd.querySelector('.fn-body');
+      if(lede){ const ce=lede.getAttribute('contenteditable'); lede.removeAttribute('contenteditable');
+        src=this.splice(src,'<p class="fn-lede">','p',lede.outerHTML);
+        if(ce!=null) lede.setAttribute('contenteditable',ce); }
+      if(body){ const ce=body.getAttribute('contenteditable'); body.removeAttribute('contenteditable');
+        src=this.splice(src,'<div class="fn-body">','div',body.outerHTML);
+        if(ce!=null) body.setAttribute('contenteditable',ce); }
+    }
+    return src;
+  },
+  renderPreviewFrame(){
+    const frame=document.getElementById('prevView'); if(!frame) return;
+    let html=this.buildSource();
+    if(this._css) html=html.replace(/<link[^>]*blog\.css[^>]*>/i,'<style>'+this._css+'</style>');
+    html=html.replace(/<script[^>]*uz-(nav|footer)[^>]*><\/script>/gi,'');
+    frame.srcdoc=html;
+  },
   async save(){
     const e=this.editing; if(!e) return;
     const btn=document.getElementById('saveBtn');
     if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
     try{
-      let src=e.source;
       const cat=this.gv('edCat');
-      src=this.applySeo(src,{cat:cat,desc:this.gv('edDesc'),kw:this.gv('edKw')});
-      src=this.applyFoot(src);
-      const fd=document.getElementById('prevFrame').contentDocument;
-      if(fd){
-        const lede=fd.querySelector('.fn-lede'), body=fd.querySelector('.fn-body');
-        if(lede){ lede.removeAttribute('contenteditable');
-          src=this.splice(src,'<p class="fn-lede">','p',lede.outerHTML); }
-        if(body){ body.removeAttribute('contenteditable');
-          src=this.splice(src,'<div class="fn-body">','div',body.outerHTML); }
-      }
+      const src=this.buildSource();
       const ok=await this.putFile(e.file,src,e.sha,"edit "+e.p.slug+" (planner)");
       if(!ok) throw new Error("GitHub rejected the commit");
       if(cat&&cat!==e.p.category){
@@ -669,16 +708,26 @@ const App={
     return null;
   },
   applyFoot(src){
-    const foot='<section class="fn-foot" aria-label="Keep reading">\n'+
-      '      <div>\n        <div class="fn-foot-eyebrow">Up next</div>\n'+this.buildNext()+'\n      </div>\n'+
-      '      <div>\n        <div class="fn-foot-eyebrow">Related reading</div>\n'+
-      '        <div class="fn-related">\n'+this.buildRelated()+'\n        </div>\n      </div>\n    </section>';
-    return this.splice(src,'<section class="fn-foot"','section',foot);
+    const next=this.buildNext(), rel=this.buildRelated();
+    let foot='';
+    if(next||rel){
+      let inner='';
+      if(next) inner+='      <div>\n        <div class="fn-foot-eyebrow">Up next</div>\n'+next+'\n      </div>\n';
+      if(rel)  inner+='      <div>\n        <div class="fn-foot-eyebrow">Related reading</div>\n'+
+        '        <div class="fn-related">\n'+rel+'\n        </div>\n      </div>\n';
+      foot='<section class="fn-foot" aria-label="Keep reading">\n'+inner+'    </section>';
+    }
+    const b=this.bounds(src,'<section class="fn-foot"','section');
+    if(b) return src.slice(0,b[0])+foot+src.slice(b[1]);
+    if(!foot) return src;
+    let at=src.indexOf('<p class="fn-footer-note">');
+    if(at<0) at=src.indexOf('</article>');
+    return at<0?src:src.slice(0,at)+foot+'\n\n    '+src.slice(at);
   },
   buildNext(){
     const id=this.gv('edNext');
     const p=id?this.queue.posts.find(x=>x.id===id):null;
-    if(!p) return '        <div class="fn-next-cat" style="opacity:.55">No up-next article set.</div>';
+    if(!p) return '';
     const w=WRITERS[p.writer]||{name:p.writer};
     return '        <a class="fn-next-card" href="/blog/'+p.slug+'/">\n'+
       '          <div class="fn-next-cat">'+this.esc(p.category)+' · '+this.esc(w.name)+'</div>\n'+
@@ -688,15 +737,15 @@ const App={
   },
   buildRelated(){
     const out=[];
-    for(let i=0;i<3;i++){
-      const t=this.gv('edRelT'+i).trim(); if(!t) continue;
-      const c=this.gv('edRelC'+i).trim();
-      const u=this.gv('edRelU'+i).trim()||'#';
-      out.push('          <a class="fn-related-link" href="'+this.esc(u)+'">\n'+
-        (c?'            <span class="fn-related-cat">'+this.esc(c)+'</span>\n':'')+
-        '            '+this.esc(t)+'\n          </a>');
-    }
-    return out.length?out.join('\n'):'          <!-- no related links set -->';
+    document.querySelectorAll('#relRows .rel-row').forEach(function(row){
+      const t=(row.querySelector('.relT').value||'').trim(); if(!t) return;
+      const c=(row.querySelector('.relC').value||'').trim();
+      const u=(row.querySelector('.relU').value||'').trim()||'#';
+      out.push('          <a class="fn-related-link" href="'+App.esc(u)+'">\n'+
+        (c?'            <span class="fn-related-cat">'+App.esc(c)+'</span>\n':'')+
+        '            '+App.esc(t)+'\n          </a>');
+    });
+    return out.join('\n');
   },
   applySeo(src,o){
     if(o.cat){
