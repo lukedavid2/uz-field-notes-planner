@@ -145,6 +145,45 @@
   .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--card2);
     border:1px solid var(--line2);border-radius:9px;padding:11px 18px;font-size:13px;z-index:60;
     box-shadow:0 8px 28px rgba(0,0,0,.5)}
+
+  /* ── editor: tabbed modal ── */
+  .modal{display:flex;flex-direction:column;max-height:calc(100vh - 80px)}
+  .modal-h,.tabs,.save-bar{flex-shrink:0}
+  .modal-b{overflow:auto;flex:1}
+  .tabs{display:flex;gap:2px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--bg2)}
+  .tab{background:transparent;color:var(--faint);font-size:13px;font-weight:600;padding:11px 13px;
+       border-bottom:2px solid transparent;border-radius:0}
+  .tab:hover{color:var(--dim)}
+  .tab.is-active{color:var(--gold);border-bottom-color:var(--gold)}
+  .ed-hint{font-size:12.5px;color:var(--dim);background:var(--card);border:1px solid var(--line);
+    border-radius:8px;padding:9px 12px;margin-bottom:14px;display:flex;align-items:center}
+  .ed-frame{height:520px}
+  /* ── editor: forms ── */
+  .fld{margin-bottom:16px}
+  .fld>label{font-size:12.5px;font-weight:600;color:var(--faint);text-transform:uppercase;
+    letter-spacing:.08em;display:block;margin-bottom:4px}
+  .fielddesc{font-size:12px;color:var(--faint);margin:0 0 8px;line-height:1.45}
+  .fld textarea,.fld select,.fld input[type=text]{width:100%;background:var(--bg);
+    border:1px solid var(--line);border-radius:8px;padding:10px 12px;color:var(--text);
+    font-family:inherit;font-size:13.5px;margin:0}
+  .fld textarea{resize:vertical;min-height:74px;line-height:1.55}
+  .fld select:focus,.fld textarea:focus,.fld input:focus{outline:none;border-color:var(--gold)}
+  .cnt{float:right;font-weight:600;font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0}
+  .rel-head,.rel-row{display:grid;grid-template-columns:104px 1fr 158px;gap:8px}
+  .rel-row{margin-bottom:8px}
+  .rel-head{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+    color:var(--faint);margin-bottom:5px;padding:0 2px}
+  .kw-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+  .kw-chip{background:rgba(212,167,69,.12);border:1px solid var(--line2);color:var(--gold-dim);
+    font-size:11.5px;padding:3px 9px;border-radius:20px}
+  .ref-box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:9px 12px;
+    font-size:12px;color:var(--dim);margin-bottom:16px}
+  .ref-box code{color:var(--gold);font-size:11.5px;word-break:break-all}
+  .save-bar{display:flex;align-items:center;gap:11px;padding:12px 18px;border-top:1px solid var(--line);
+    background:var(--bg2)}
+  .save-bar .spacer{flex:1}
+  .save-state{font-size:12.5px;color:var(--faint)}
+  .save-state.dirty{color:var(--warn);font-weight:600}
 </style>
 </head>
 <body>
@@ -162,7 +201,7 @@
 <!-- ══ CONNECT SCREEN ══ -->
 <div class="connect" id="connectScreen">
   <h1>Field <span>Notes</span> — Content Planner</h1>
-  <p class="lead">Schedule and preview the Undercover Zest blog. Posts you date here publish
+  <p class="lead">Write, schedule and preview the Undercover Zest blog. Posts you date here publish
      themselves to undercoverzest.app on the day you choose.</p>
 
   <div class="panel">
@@ -183,9 +222,9 @@
       </div>
     </div>
   </div>
-  <p class="muted">The planner reads and writes one file — <code>queue.json</code> — on a private
-     <code>content-pipeline</code> branch. It never touches your live site directly; the publish
-     step is a separate scheduled GitHub Action.</p>
+  <p class="muted">The planner reads and writes the <code>content-pipeline</code> branch — the
+     <code>queue.json</code> schedule and the article files. It never touches your live site
+     directly; publishing is a separate scheduled GitHub Action.</p>
 </div>
 
 <!-- ══ DASHBOARD ══ -->
@@ -349,33 +388,72 @@ const App={
     document.getElementById('pipeCount').textContent=this.queue.posts.length+" posts";
   },
 
-  /* ---- post modal ---- */
+  /* ════════ POST EDITOR ════════ */
+  editing:null,
+
   async open(id){
     const p=this.queue.posts.find(x=>x.id===id); if(!p) return;
-    const w=WRITERS[p.writer]||{name:p.writer,cls:'mv'};
-    const host=document.getElementById('modalHost');
-    host.innerHTML='<div class="scrim" onclick="if(event.target===this)App.closeModal()"><div class="modal">'+
+    if(this.demoMode) return this.openDemo(p);
+    const w=WRITERS[p.writer]||{name:p.writer,cls:'mv',initials:'?'};
+    const gh="https://github.com/"+REPO_OWNER+"/"+REPO_NAME+"/blob/"+PIPE_BRANCH+"/"+p.file;
+    document.getElementById('modalHost').innerHTML=
+      '<div class="scrim" onclick="if(event.target===this)App.closeModal()"><div class="modal">'+
       '<div class="modal-h"><div class="av av-'+w.cls+'">'+(w.initials||'?')+'</div>'+
       '<div class="body"><h3>'+this.esc(p.title)+'</h3>'+
-      '<div class="mm"><span class="cat">'+this.esc(p.category)+'</span><span>'+w.name+'</span>'+
+      '<div class="mm"><span class="cat">'+this.esc(p.category)+'</span><span>'+this.esc(w.name)+'</span>'+
       (p.readingTime?'<span>'+this.esc(p.readingTime)+'</span>':'')+
       '<span>status: <b style="color:var(--text)">'+p.status+'</b></span></div></div>'+
       '<button class="xbtn" onclick="App.closeModal()">×</button></div>'+
+      '<div class="tabs">'+
+        '<button class="tab is-active" onclick="App.tab(this,\'copy\')">Copy</button>'+
+        '<button class="tab" onclick="App.tab(this,\'links\')">Up next &amp; related</button>'+
+        '<button class="tab" onclick="App.tab(this,\'seo\')">SEO</button>'+
+        '<button class="tab" onclick="App.tab(this,\'sched\')">Schedule</button>'+
+      '</div>'+
       '<div class="modal-b">'+
-        '<div class="sched-box"><h4>Go-live date</h4>'+
-        '<div class="status-line" id="schedStatus"></div>'+
-        '<div class="row"><input type="date" id="dateIn" value="'+(p.publishDate||'')+'" style="width:auto">'+
-        '<button class="btn sm" onclick="App.schedule(\''+id+'\')">'+
-          (p.status==='scheduled'?'Reschedule':'Schedule')+'</button>'+
-        (p.status!=='draft'?'<button class="btn ghost sm" onclick="App.unschedule(\''+id+'\')">Move to drafts</button>':'')+
-        (p.file?'<a class="btn ghost sm" href="https://github.com/'+REPO_OWNER+'/'+REPO_NAME+
-           '/blob/'+PIPE_BRANCH+'/'+p.file+'" target="_blank" rel="noopener">Edit on GitHub</a>':'')+
-        '</div></div>'+
-        '<div class="prev-h">Live preview</div>'+
-        '<iframe class="prev-frame" id="prevFrame"></iframe>'+
+        '<div class="tabpanel" data-p="copy">'+
+          '<div class="ed-hint">Click into the article below and edit the copy directly — changes commit when you press Save.</div>'+
+          '<iframe class="prev-frame ed-frame" id="prevFrame"></iframe>'+
+        '</div>'+
+        '<div class="tabpanel hidden" data-p="links" id="panLinks"></div>'+
+        '<div class="tabpanel hidden" data-p="seo" id="panSeo"></div>'+
+        '<div class="tabpanel hidden" data-p="sched" id="panSched"></div>'+
+      '</div>'+
+      '<div class="save-bar">'+
+        '<a class="btn ghost sm" href="'+gh+'" target="_blank" rel="noopener">Open on GitHub</a>'+
+        '<span class="spacer"></span>'+
+        '<span class="save-state" id="saveState">Loading article…</span>'+
+        '<button class="btn" id="saveBtn" onclick="App.save()" disabled>Save changes</button>'+
       '</div></div></div>';
+    document.getElementById('panSched').innerHTML=this.schedPanel(p);
     this.schedStatus(p);
-    this.loadPreview(p);
+    try{
+      await this.blogCss();
+      await this.loadPostForEdit(p);
+      const ss=document.getElementById('saveState');
+      if(ss){ ss.textContent='No changes yet'; ss.classList.remove('dirty'); }
+      const sb=document.getElementById('saveBtn'); if(sb) sb.disabled=false;
+    }catch(e){
+      const ss=document.getElementById('saveState'); if(ss) ss.textContent='Could not load article';
+      const f=document.getElementById('prevFrame');
+      if(f) f.srcdoc='<body style="font-family:sans-serif;color:#888;padding:30px">'+
+        'Article unavailable: '+this.esc(e.message)+'</body>';
+    }
+  },
+
+  tab(btn,name){
+    document.querySelectorAll('.modal .tab').forEach(t=>t.classList.toggle('is-active',t===btn));
+    document.querySelectorAll('.modal .tabpanel').forEach(p=>p.classList.toggle('hidden',p.dataset.p!==name));
+  },
+
+  schedPanel(p){
+    return '<div class="sched-box"><h4>Go-live date</h4>'+
+      '<div class="status-line" id="schedStatus"></div>'+
+      '<div class="row"><input type="date" id="dateIn" value="'+(p.publishDate||'')+'" style="width:auto">'+
+      '<button class="btn sm" onclick="App.schedule(\''+p.id+'\')">'+
+        (p.status==='scheduled'?'Reschedule':'Schedule')+'</button>'+
+      (p.status!=='draft'?'<button class="btn ghost sm" onclick="App.unschedule(\''+p.id+'\')">Move to drafts</button>':'')+
+      '</div></div>';
   },
   schedStatus(p){
     const el=document.getElementById('schedStatus'); if(!el) return;
@@ -383,43 +461,278 @@ const App={
     else if(p.publishDate) el.innerHTML='Scheduled to publish on <b>'+this.fmtStr(p.publishDate)+'</b>. It will go live automatically that morning.';
     else el.innerHTML='Not scheduled. Pick a date to queue it for automatic publishing.';
   },
-  closeModal(){ document.getElementById('modalHost').innerHTML=''; },
+  closeModal(){
+    if(this.editing&&this.editing.dirty&&!confirm("You have unsaved changes. Close without saving?")) return;
+    this.editing=null;
+    document.getElementById('modalHost').innerHTML='';
+  },
 
   async schedule(id){
     const p=this.queue.posts.find(x=>x.id===id); if(!p) return;
-    const d=document.getElementById('dateIn').value;
+    const d=this.gv('dateIn');
     if(!d){ this.toast("Pick a date first."); return; }
     if(d<new Date().toISOString().slice(0,10)){ this.toast("That date is in the past."); return; }
     p.publishDate=d; p.status='scheduled';
     if(await this.saveQueue("schedule: "+p.slug+" → "+d)){
-      this.toast("Scheduled for "+this.fmtStr(d)); this.closeModal(); this.render();
+      this.toast("Scheduled for "+this.fmtStr(d)); this.render(); this.refreshSched(p);
     }
   },
   async unschedule(id){
     const p=this.queue.posts.find(x=>x.id===id); if(!p) return;
     p.publishDate=null; p.status='draft';
     if(await this.saveQueue("unschedule: "+p.slug)){
-      this.toast("Moved back to drafts."); this.closeModal(); this.render();
+      this.toast("Moved back to drafts."); this.render(); this.refreshSched(p);
     }
   },
+  refreshSched(p){
+    const sp=document.getElementById('panSched');
+    if(sp){ sp.innerHTML=this.schedPanel(p); this.schedStatus(p); }
+  },
 
-  async loadPreview(p){
+  /* ---- load + parse the post file ---- */
+  async loadPostForEdit(p){
+    const r=await fetch(API+"/contents/"+p.file+"?ref="+PIPE_BRANCH,{headers:this.gh()});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const j=await r.json();
+    const source=decodeURIComponent(escape(atob(j.content.replace(/\n/g,''))));
+    this.editing={id:p.id,p:p,file:p.file,source:source,sha:j.sha,dirty:false};
+    const parsed=this.parsePost(source,p);
+    document.getElementById('panLinks').innerHTML=this.linksPanel(parsed,p);
+    document.getElementById('panSeo').innerHTML=this.seoPanel(parsed,p);
+    this.renderEditFrame(source);
+    document.querySelectorAll('#panLinks input,#panLinks select,#panSeo input,#panSeo select,#panSeo textarea')
+      .forEach(el=>el.addEventListener('input',()=>App.markDirty()));
+    this.descCount(); this.kwChips();
+  },
+  parsePost(source,p){
+    const doc=new DOMParser().parseFromString(source,'text/html');
+    const q=s=>doc.querySelector(s);
+    let cat=p.category||'';
+    const eb=q('.fn-eyebrow');
+    if(eb){ const t=(eb.textContent||'').trim(); cat=(t.indexOf('·')>=0?t.split('·')[0]:t).trim()||cat; }
+    const desc=((q('meta[name="description"]')||{}).content)||'';
+    const kw=((q('meta[name="keywords"]')||{}).content)||'';
+    let nextSlug='';
+    const nc=q('.fn-next-card');
+    if(nc){ const m=(nc.getAttribute('href')||'').match(/blog\/([^\/]+)/); if(m) nextSlug=m[1]; }
+    const related=[].slice.call(doc.querySelectorAll('.fn-related-link')).map(a=>{
+      const c=a.querySelector('.fn-related-cat');
+      const ct=c?(c.textContent||'').trim():'';
+      let title=(a.textContent||'').trim();
+      if(ct&&title.indexOf(ct)===0) title=title.slice(ct.length).trim();
+      return {cat:ct,title:title,url:a.getAttribute('href')||''};
+    });
+    return {cat:cat,desc:desc,kw:kw,nextSlug:nextSlug,related:related};
+  },
+
+  /* ---- editor panels ---- */
+  linksPanel(parsed,p){
+    const opts='<option value="">— none —</option>'+this.queue.posts.filter(x=>x.id!==p.id)
+      .map(x=>'<option value="'+x.id+'"'+(x.slug===parsed.nextSlug?' selected':'')+'>'+
+        this.esc(x.title)+'</option>').join('');
+    let rows='';
+    for(let i=0;i<3;i++){
+      const r=parsed.related[i]||{cat:'',title:'',url:''};
+      rows+='<div class="rel-row">'+
+        '<input type="text" id="edRelC'+i+'" value="'+this.esc(r.cat)+'" placeholder="Theory">'+
+        '<input type="text" id="edRelT'+i+'" value="'+this.esc(r.title)+'" placeholder="Article title">'+
+        '<input type="text" id="edRelU'+i+'" value="'+this.esc(r.url)+'" placeholder="/blog/slug/ or #">'+
+        '</div>';
+    }
+    return '<div class="fld"><label>Up next</label>'+
+      '<div class="fielddesc">The headline "read next" card at the foot of this article.</div>'+
+      '<select id="edNext">'+opts+'</select></div>'+
+      '<div class="fld"><label>Related reading</label>'+
+      '<div class="fielddesc">Up to three links below the Up-next card. Leave a row blank to drop it; '+
+      'a URL can point at another article or stay "#" until that piece exists.</div>'+
+      '<div class="rel-head"><span>Category</span><span>Title</span><span>URL</span></div>'+
+      rows+'</div>';
+  },
+  seoPanel(parsed,p){
+    const cats=['Theory','Process','Lyrics','Inspiration'];
+    if(parsed.cat&&cats.indexOf(parsed.cat)<0) cats.unshift(parsed.cat);
+    const catOpts=cats.map(c=>'<option'+(c===parsed.cat?' selected':'')+'>'+this.esc(c)+'</option>').join('');
+    return '<div class="ref-box">Lives at <code>https://undercoverzest.app/blog/'+this.esc(p.slug)+'/</code></div>'+
+      '<div class="fld"><label>Category</label>'+
+      '<div class="fielddesc">Sets the blog filter, the eyebrow on the article, and the cards on the blog index and homepage.</div>'+
+      '<select id="edCat">'+catOpts+'</select></div>'+
+      '<div class="fld"><label>Meta description <span class="cnt" id="descCnt"></span></label>'+
+      '<div class="fielddesc">The search-result snippet — and the excerpt on the blog-index card. Aim for 140–160 characters.</div>'+
+      '<textarea id="edDesc" oninput="App.descCount()">'+this.esc(parsed.desc)+'</textarea></div>'+
+      '<div class="fld"><label>SEO keywords</label>'+
+      '<div class="fielddesc">Comma-separated phrases this article targets in search.</div>'+
+      '<input type="text" id="edKw" value="'+this.esc(parsed.kw)+'" oninput="App.kwChips()">'+
+      '<div class="kw-chips" id="kwChips"></div></div>';
+  },
+  descCount(){
+    const d=document.getElementById('edDesc'), c=document.getElementById('descCnt');
+    if(!d||!c) return;
+    const n=d.value.length;
+    c.textContent=n+' chars';
+    c.style.color=(n>=120&&n<=160)?'var(--ok)':'var(--warn)';
+  },
+  kwChips(){
+    const i=document.getElementById('edKw'), box=document.getElementById('kwChips');
+    if(!i||!box) return;
+    box.innerHTML=i.value.split(',').map(s=>s.trim()).filter(Boolean)
+      .map(s=>'<span class="kw-chip">'+this.esc(s)+'</span>').join('');
+  },
+
+  /* ---- editable preview ---- */
+  renderEditFrame(source){
     const frame=document.getElementById('prevFrame'); if(!frame) return;
+    let html=source;
+    if(this._css) html=html.replace(/<link[^>]*blog\.css[^>]*>/i,'<style>'+this._css+'</style>');
+    html=html.replace(/<script[^>]*uz-(nav|footer)[^>]*><\/script>/gi,'');
+    html=html.replace(/<\/head>/i,'<style>.fn-lede[contenteditable],.fn-body[contenteditable]'+
+      '{outline:2px dashed rgba(212,167,69,.45);outline-offset:7px;border-radius:3px}'+
+      '.fn-lede[contenteditable]:focus,.fn-body[contenteditable]:focus'+
+      '{outline-style:solid;outline-color:#d4a745}</style></head>');
+    frame.onload=function(){
+      try{
+        const d=frame.contentDocument;
+        ['.fn-lede','.fn-body'].forEach(function(s){
+          const el=d.querySelector(s); if(el) el.setAttribute('contenteditable','true');
+        });
+        try{ d.execCommand('defaultParagraphSeparator',false,'p'); }catch(e){}
+        d.addEventListener('input',function(){ App.markDirty(); });
+        d.addEventListener('click',function(e){
+          const a=e.target.closest&&e.target.closest('a'); if(a) e.preventDefault();
+        });
+      }catch(e){}
+    };
+    frame.srcdoc=html;
+  },
+  markDirty(){
+    if(!this.editing) return;
+    this.editing.dirty=true;
+    const s=document.getElementById('saveState');
+    if(s){ s.textContent='Unsaved changes'; s.classList.add('dirty'); }
+  },
+  gv(id){ const el=document.getElementById(id); return el?el.value:''; },
+
+  /* ---- save: splice edits into the original file, then commit ---- */
+  async save(){
+    const e=this.editing; if(!e) return;
+    const btn=document.getElementById('saveBtn');
+    if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
     try{
-      let html;
-      if(this.demoMode){ html=DEMO_POST(p); }
-      else{
-        const r=await fetch(API+"/contents/"+p.file+"?ref="+PIPE_BRANCH,{headers:this.gh()});
-        if(!r.ok) throw new Error("post file "+r.status);
-        html=decodeURIComponent(escape(atob((await r.json()).content.replace(/\n/g,''))));
-        // inline blog.css; drop suite chrome scripts so the preview doesn't 404
-        const css=await this.blogCss();
-        if(css) html=html.replace(/<link[^>]*blog\.css[^>]*>/i,'<style>'+css+'</style>');
-        html=html.replace(/<script[^>]*uz-(nav|footer)[^>]*><\/script>/gi,'');
+      let src=e.source;
+      const cat=this.gv('edCat');
+      src=this.applySeo(src,{cat:cat,desc:this.gv('edDesc'),kw:this.gv('edKw')});
+      src=this.applyFoot(src);
+      const fd=document.getElementById('prevFrame').contentDocument;
+      if(fd){
+        const lede=fd.querySelector('.fn-lede'), body=fd.querySelector('.fn-body');
+        if(lede){ lede.removeAttribute('contenteditable');
+          src=this.splice(src,'<p class="fn-lede">','p',lede.outerHTML); }
+        if(body){ body.removeAttribute('contenteditable');
+          src=this.splice(src,'<div class="fn-body">','div',body.outerHTML); }
       }
-      frame.srcdoc=html;
-    }catch(e){ frame.srcdoc='<body style="font-family:sans-serif;color:#888;padding:30px">'+
-      'Preview unavailable: '+this.esc(e.message)+'</body>'; }
+      const ok=await this.putFile(e.file,src,e.sha,"edit "+e.p.slug+" (planner)");
+      if(!ok) throw new Error("GitHub rejected the commit");
+      if(cat&&cat!==e.p.category){
+        e.p.category=cat;
+        await this.saveQueue("category: "+e.p.slug+" → "+cat);
+      }
+      this.toast("Saved to content-pipeline.");
+      this.render();
+      this.open(e.id);
+    }catch(err){
+      this.toast("Save failed: "+err.message);
+      if(btn){ btn.disabled=false; btn.textContent='Save changes'; }
+    }
+  },
+  async putFile(path,content,sha,msg){
+    const body={message:msg,branch:PIPE_BRANCH,
+      content:btoa(unescape(encodeURIComponent(content)))};
+    if(sha) body.sha=sha;
+    const r=await fetch(API+"/contents/"+path,
+      {method:"PUT",headers:{...this.gh(),"Content-Type":"application/json"},body:JSON.stringify(body)});
+    return r.ok;
+  },
+  splice(src,anchor,tag,replacement){
+    const b=this.bounds(src,anchor,tag);
+    return b?src.slice(0,b[0])+replacement+src.slice(b[1]):src;
+  },
+  bounds(src,anchor,tag){
+    const start=src.indexOf(anchor);
+    if(start<0) return null;
+    const open='<'+tag, close='</'+tag+'>';
+    let depth=0,i=start;
+    while(i<src.length){
+      const no=src.indexOf(open,i), nc=src.indexOf(close,i);
+      if(nc<0) return null;
+      if(no>=0&&no<nc){ depth++; i=no+open.length; }
+      else { depth--; i=nc+close.length; if(depth<=0) return [start,i]; }
+    }
+    return null;
+  },
+  applyFoot(src){
+    const foot='<section class="fn-foot" aria-label="Keep reading">\n'+
+      '      <div>\n        <div class="fn-foot-eyebrow">Up next</div>\n'+this.buildNext()+'\n      </div>\n'+
+      '      <div>\n        <div class="fn-foot-eyebrow">Related reading</div>\n'+
+      '        <div class="fn-related">\n'+this.buildRelated()+'\n        </div>\n      </div>\n    </section>';
+    return this.splice(src,'<section class="fn-foot"','section',foot);
+  },
+  buildNext(){
+    const id=this.gv('edNext');
+    const p=id?this.queue.posts.find(x=>x.id===id):null;
+    if(!p) return '        <div class="fn-next-cat" style="opacity:.55">No up-next article set.</div>';
+    const w=WRITERS[p.writer]||{name:p.writer};
+    return '        <a class="fn-next-card" href="/blog/'+p.slug+'/">\n'+
+      '          <div class="fn-next-cat">'+this.esc(p.category)+' · '+this.esc(w.name)+'</div>\n'+
+      '          <div class="fn-next-title">'+this.esc(p.title)+'</div>\n'+
+      '          <span class="fn-next-arrow">Read next →</span>\n'+
+      '        </a>';
+  },
+  buildRelated(){
+    const out=[];
+    for(let i=0;i<3;i++){
+      const t=this.gv('edRelT'+i).trim(); if(!t) continue;
+      const c=this.gv('edRelC'+i).trim();
+      const u=this.gv('edRelU'+i).trim()||'#';
+      out.push('          <a class="fn-related-link" href="'+this.esc(u)+'">\n'+
+        (c?'            <span class="fn-related-cat">'+this.esc(c)+'</span>\n':'')+
+        '            '+this.esc(t)+'\n          </a>');
+    }
+    return out.length?out.join('\n'):'          <!-- no related links set -->';
+  },
+  applySeo(src,o){
+    if(o.cat){
+      src=src.replace(/(<div class="fn-eyebrow">)([\s\S]*?)(<\/div>)/i,function(m,a,inner,c){
+        const rest=inner.indexOf('·')>=0?inner.slice(inner.indexOf('·')+1):'';
+        return a+App.esc(o.cat)+(rest?' ·'+rest:'')+c;
+      });
+    }
+    const descTag='<meta name="description" content="'+this.esc(o.desc||'')+'">';
+    if(/<meta\s+name=["']description["']/i.test(src))
+      src=src.replace(/<meta\s+name=["']description["'][^>]*>/i,function(){return descTag;});
+    const kwTag='<meta name="keywords" content="'+this.esc(o.kw||'')+'">';
+    if(/<meta\s+name=["']keywords["']/i.test(src))
+      src=src.replace(/<meta\s+name=["']keywords["'][^>]*>/i,function(){return kwTag;});
+    else if((o.kw||'').trim())
+      src=src.replace(descTag,function(){return descTag+'\n  '+kwTag;});
+    return src;
+  },
+
+  openDemo(p){
+    const w=WRITERS[p.writer]||{name:p.writer,cls:'mv',initials:'?'};
+    document.getElementById('modalHost').innerHTML=
+      '<div class="scrim" onclick="if(event.target===this)App.closeModal()"><div class="modal">'+
+      '<div class="modal-h"><div class="av av-'+w.cls+'">'+(w.initials||'?')+'</div>'+
+      '<div class="body"><h3>'+this.esc(p.title)+'</h3>'+
+      '<div class="mm"><span class="cat">'+this.esc(p.category)+'</span><span>'+this.esc(w.name)+'</span>'+
+      '<span>status: <b style="color:var(--text)">'+p.status+'</b></span></div></div>'+
+      '<button class="xbtn" onclick="App.closeModal()">×</button></div>'+
+      '<div class="modal-b">'+
+        '<div class="ed-hint">Sample mode — connect the planner to GitHub to edit and schedule real articles.</div>'+
+        this.schedPanel(p)+
+        '<div class="prev-h">Live preview</div>'+
+        '<iframe class="prev-frame" id="prevFrame"></iframe>'+
+      '</div></div></div>';
+    this.schedStatus(p);
+    const f=document.getElementById('prevFrame'); if(f) f.srcdoc=DEMO_POST(p);
   },
   async blogCss(){
     if(this._css!==undefined) return this._css;
