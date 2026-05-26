@@ -353,6 +353,18 @@ const App={
 
   renderRotation(){
     const posts=this.queue.posts;
+    const planned=posts.filter(p=>p.status==='planned');
+    const drafts=posts.filter(p=>p.status==='draft').length;
+    const draftsTxt=drafts+" draft"+(drafts===1?'':'s')+" waiting for a date";
+    if(planned.length){
+      const first=planned[0];
+      const w=WRITERS[first.writer]||{name:first.writer};
+      document.getElementById('rotation').innerHTML=
+        "Next up: <b>"+this.esc(w.name)+"</b> with <i>"+this.esc(first.title)+"</i>"+
+        " &nbsp;·&nbsp; "+planned.length+" in the trajectory queue"+
+        " &nbsp;·&nbsp; "+draftsTxt+".";
+      return;
+    }
     const scheduled=posts.filter(p=>p.status==='scheduled'&&p.publishDate)
                          .sort((a,b)=>a.publishDate.localeCompare(b.publishDate));
     const last=scheduled[scheduled.length-1];
@@ -360,10 +372,9 @@ const App={
     if(last){ nextW=ROTATION[(ROTATION.indexOf(last.writer)+1)%3];
       const d=new Date(last.publishDate+"T12:00:00"); d.setDate(d.getDate()+7); nextD=d; }
     else { nextW=ROTATION[0]; nextD=this.nextMonday(); }
-    const drafts=posts.filter(p=>p.status==='draft').length;
     document.getElementById('rotation').innerHTML=
       "Next in rotation: <b>"+WRITERS[nextW].name+"</b> &nbsp;·&nbsp; suggested slot <b>"+
-      this.fmt(nextD)+"</b> &nbsp;·&nbsp; "+drafts+" draft"+(drafts===1?'':'s')+" waiting for a date.";
+      this.fmt(nextD)+"</b> &nbsp;·&nbsp; "+draftsTxt+".";
   },
 
   renderCalendar(){
@@ -379,9 +390,9 @@ const App={
     for(let d=1;d<=days;d++){
       const ds=y+"-"+String(m+1).padStart(2,'0')+"-"+String(d).padStart(2,'0');
       const pills=(byDate[ds]||[]).map(p=>{const w=WRITERS[p.writer];
-        return '<div class="post-pill pill-'+w.cls+'" onclick="App.open(\''+p.id+'\')" title="'+
+        return '<div class="post-pill pill-'+w.cls+'" onclick="event.stopPropagation();App.open(\''+p.id+'\')" title="'+
           this.esc(p.title)+'">'+this.esc(p.title.slice(0,42))+'</div>';}).join('');
-      h+='<div class="cell'+(ds===tk?' today':'')+'"><div class="dnum">'+d+'</div>'+pills+'</div>';
+      h+='<div class="cell'+(ds===tk?' today':'')+'" style="cursor:pointer" onclick="App.openDayPicker(\''+ds+'\')"><div class="dnum">'+d+'</div>'+pills+'</div>';
     }
     document.getElementById('cal').innerHTML=h;
     const sc=this.queue.posts.filter(p=>p.status==='scheduled').length;
@@ -469,6 +480,9 @@ const App={
         '<select id="plCat">'+catOpts+'</select></div>'+
         '<div class="fld"><label>Title</label>'+
         '<input type="text" id="plTitle" value="'+this.esc(p.title||'')+'"></div>'+
+        '<div class="fld"><label>Target date (planning only, does not publish)</label>'+
+        '<div class="fielddesc">A soft goal for when this should run. The article is not scheduled until you set a date on the draft itself.</div>'+
+        '<input type="date" id="plnDate" value="'+this.esc(p.targetDate||'')+'" style="width:auto"></div>'+
         '<div class="fld"><label>Brief</label>'+
         '<div class="fielddesc">2-3 line description of what the article delivers.</div>'+
         '<textarea id="plBrief" rows="5" style="min-height:96px">'+this.esc(p.brief||'')+'</textarea></div>'+
@@ -495,6 +509,8 @@ const App={
     p.category=this.gv('plCat')||p.category;
     p.title=title;
     p.brief=(this.gv('plBrief')||'').trim();
+    const td=(this.gv('plnDate')||'').trim();
+    if(td) p.targetDate=td; else delete p.targetDate;
     if(typeof p.slug==='string'&&p.slug.indexOf('new-')===0){
       const sl=this.slugify(title)||('planned-'+Date.now());
       p.slug=sl; p.id=sl;
@@ -528,6 +544,61 @@ const App={
     if(j<0||j>=posts.length) return;
     const tmp=posts[i]; posts[i]=posts[j]; posts[j]=tmp;
     if(await this.saveQueue("planner: reorder planned ("+(dir<0?'up':'down')+" "+tmp.slug+")")){
+      this.render();
+    }
+  },
+
+  /* ════════ DAY PICKER (click a calendar cell to assign a draft) ════════ */
+  openDayPicker(ds){
+    const posts=this.queue.posts;
+    const drafts=posts.filter(p=>p.status==='draft'&&!p.publishDate);
+    const onDate=posts.filter(p=>p.status==='scheduled'&&p.publishDate===ds);
+    let body='';
+    if(onDate.length){
+      body+='<div class="prev-h">Already on this date</div>';
+      onDate.forEach(p=>{
+        const w=WRITERS[p.writer]||{name:p.writer,cls:'mv',initials:'?'};
+        body+='<div class="pcard" style="cursor:default">'+
+          '<div class="av av-'+w.cls+'">'+w.initials+'</div><div class="body">'+
+          '<div class="ptitle">'+this.esc(p.title)+'</div>'+
+          '<div class="pmeta"><span class="cat">'+this.esc(p.category||'')+'</span>'+
+          '<span>'+this.esc(w.name)+'</span></div></div></div>';
+      });
+    }
+    body+='<div class="prev-h" style="margin-top:14px">Drafts waiting for a date</div>';
+    if(!drafts.length){
+      body+='<div class="empty">No drafts waiting. Move a post to drafts to schedule it here.</div>';
+    } else {
+      drafts.forEach(p=>{
+        const w=WRITERS[p.writer]||{name:p.writer,cls:'mv',initials:'?'};
+        body+='<div class="pcard" style="cursor:default">'+
+          '<div class="av av-'+w.cls+'">'+w.initials+'</div><div class="body">'+
+          '<div class="ptitle">'+this.esc(p.title)+'</div>'+
+          '<div class="pmeta"><span class="cat">'+this.esc(p.category||'')+'</span>'+
+          '<span>'+this.esc(w.name)+'</span></div></div>'+
+          '<button class="btn sm" onclick="App.assignDraftToDate(\''+p.id+'\',\''+ds+'\')">Schedule here</button>'+
+          '</div>';
+      });
+    }
+    document.getElementById('modalHost').innerHTML=
+      '<div class="scrim" onclick="if(event.target===this)App.closeModal()"><div class="modal" style="max-width:560px">'+
+      '<div class="modal-h"><div class="body">'+
+      '<h3>Schedule on '+this.fmtStr(ds)+'</h3>'+
+      '<div class="mm"><span>Pick a draft to place on this date.</span></div></div>'+
+      '<button class="xbtn" onclick="App.closeModal()">×</button></div>'+
+      '<div class="modal-b">'+body+'</div>'+
+      '<div class="save-bar">'+
+        '<span class="spacer"></span>'+
+        '<button class="btn ghost sm" onclick="App.closeModal()">Cancel</button>'+
+      '</div></div></div>';
+  },
+
+  async assignDraftToDate(id,ds){
+    const p=this.queue.posts.find(x=>x.id===id); if(!p) return;
+    p.publishDate=ds; p.status='scheduled';
+    if(await this.saveQueue("schedule: "+p.slug+" → "+ds)){
+      this.toast("Scheduled for "+this.fmtStr(ds));
+      this.closeModal();
       this.render();
     }
   },
