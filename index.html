@@ -120,6 +120,25 @@
     border:1px solid var(--line2);border-radius:10px;padding:12px 14px;margin-bottom:16px;font-size:13px}
   .rotation b{color:var(--gold)}
 
+  /* ── planned / trajectory ── */
+  .pcard.plan{border-left:3px solid var(--gold);padding-left:11px}
+  .pbrief{font-size:12.5px;color:var(--dim);line-height:1.5;margin-top:6px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+    overflow:hidden;text-overflow:ellipsis}
+  .planActions{display:flex;flex-direction:column;gap:3px;flex-shrink:0;margin-left:5px}
+  .planActions button{background:var(--card);color:var(--dim);border:1px solid var(--line);
+    width:24px;height:20px;border-radius:5px;font-size:11px;padding:0;line-height:1}
+  .planActions button:hover{color:var(--gold);border-color:var(--line2)}
+  .planActions button:disabled{opacity:.35;cursor:default}
+  .tag-next{display:inline-block;background:rgba(212,167,69,.18);color:var(--gold);
+    border:1px solid var(--line2);font-size:10px;font-weight:700;padding:1px 7px;
+    border-radius:10px;text-transform:uppercase;letter-spacing:.06em;margin-left:6px;
+    vertical-align:middle}
+  .addPlanBtn{background:var(--card);color:var(--gold);border:1px dashed var(--line2);
+    border-radius:9px;padding:8px 12px;font-size:12.5px;font-weight:600;
+    margin-bottom:7px;width:100%;text-align:center}
+  .addPlanBtn:hover{background:var(--card2);border-style:solid}
+
   /* ── modal ── */
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:40;display:flex;
          align-items:flex-start;justify-content:center;padding:34px 18px;overflow:auto}
@@ -370,8 +389,35 @@ const App={
   },
 
   renderPipeline(){
-    const groups=[['draft','Drafts — need a date'],['scheduled','Scheduled'],['published','Published']];
     let h='';
+
+    /* Trajectory: planned items, in array order */
+    const planned=this.queue.posts.filter(p=>p.status==='planned');
+    h+='<div class="grp"><div class="grp-h">Trajectory — upcoming<span class="n">'+planned.length+'</span></div>';
+    h+='<button class="addPlanBtn" onclick="App.addPlanned()">+ Add planned</button>';
+    if(!planned.length) h+='<div class="empty">Nothing planned yet.</div>';
+    planned.forEach((p,idx)=>{
+      const w=WRITERS[p.writer]||{name:p.writer,cls:'mv',initials:'?'};
+      const upDis=idx===0?' disabled':'';
+      const dnDis=idx===planned.length-1?' disabled':'';
+      h+='<div class="pcard plan" onclick="App.openPlanned(\''+p.id+'\')">'+
+        '<div class="av av-'+w.cls+'">'+w.initials+'</div><div class="body">'+
+        '<div class="ptitle">'+this.esc(p.title)+
+          (idx===0?'<span class="tag-next">Next up</span>':'')+'</div>'+
+        '<div class="pmeta"><span class="cat">'+this.esc(p.category||'')+'</span>'+
+        '<span>'+w.name+'</span></div>'+
+        (p.brief?'<div class="pbrief">'+this.esc(p.brief)+'</div>':'')+
+        '</div>'+
+        '<div class="planActions" onclick="event.stopPropagation()">'+
+          '<button onclick="event.stopPropagation();App.movePlanned(\''+p.id+'\',-1)" title="Move up"'+upDis+'>↑</button>'+
+          '<button onclick="event.stopPropagation();App.movePlanned(\''+p.id+'\',1)" title="Move down"'+dnDis+'>↓</button>'+
+        '</div>'+
+      '</div>';
+    });
+    h+='</div>';
+
+    /* Existing groups */
+    const groups=[['draft','Drafts — need a date'],['scheduled','Scheduled'],['published','Published']];
     groups.forEach(([st,label])=>{
       const items=this.queue.posts.filter(p=>p.status===st)
         .sort((a,b)=>(a.publishDate||'9999').localeCompare(b.publishDate||'9999'));
@@ -389,6 +435,101 @@ const App={
     });
     document.getElementById('pipeline').innerHTML=h;
     document.getElementById('pipeCount').textContent=this.queue.posts.length+" posts";
+  },
+
+  /* ════════ PLANNED / TRAJECTORY ════════ */
+  addPlanned(){
+    const stamp=Date.now();
+    const stub={id:'new-'+stamp,slug:'new-'+stamp,title:'Untitled planned article',
+      writer:'marcus',category:'Theory',brief:'',readingTime:null,file:null,
+      status:'planned',publishDate:null};
+    this.queue.posts.push(stub);
+    this.openPlanned(stub.id);
+  },
+
+  openPlanned(id){
+    const p=this.queue.posts.find(x=>x.id===id); if(!p) return;
+    const w=WRITERS[p.writer]||{name:p.writer,cls:'mv',initials:'?'};
+    const writerOpts=Object.keys(WRITERS).map(k=>
+      '<option value="'+k+'"'+(k===p.writer?' selected':'')+'>'+this.esc(WRITERS[k].name)+'</option>').join('');
+    const cats=['Theory','Process','Lyrics','Inspiration'];
+    if(p.category&&cats.indexOf(p.category)<0) cats.unshift(p.category);
+    const catOpts=cats.map(c=>'<option'+(c===p.category?' selected':'')+'>'+this.esc(c)+'</option>').join('');
+    document.getElementById('modalHost').innerHTML=
+      '<div class="scrim" onclick="if(event.target===this)App.closeModal()"><div class="modal">'+
+      '<div class="modal-h"><div class="av av-'+w.cls+'">'+(w.initials||'?')+'</div>'+
+      '<div class="body"><h3>Planned article</h3>'+
+      '<div class="mm"><span>status: <b style="color:var(--text)">planned</b></span>'+
+      '<span>in the trajectory queue</span></div></div>'+
+      '<button class="xbtn" onclick="App.closeModal()">×</button></div>'+
+      '<div class="modal-b">'+
+        '<div class="fld"><label>Writer</label>'+
+        '<select id="plWriter">'+writerOpts+'</select></div>'+
+        '<div class="fld"><label>Category</label>'+
+        '<select id="plCat">'+catOpts+'</select></div>'+
+        '<div class="fld"><label>Title</label>'+
+        '<input type="text" id="plTitle" value="'+this.esc(p.title||'')+'"></div>'+
+        '<div class="fld"><label>Brief</label>'+
+        '<div class="fielddesc">2-3 line description of what the article delivers.</div>'+
+        '<textarea id="plBrief" rows="5" style="min-height:96px">'+this.esc(p.brief||'')+'</textarea></div>'+
+      '</div>'+
+      '<div class="save-bar">'+
+        '<button class="btn ghost sm" onclick="App.deletePlanned(\''+p.id+'\')">Delete</button>'+
+        '<span class="spacer"></span>'+
+        '<button class="btn ghost sm" onclick="App.closeModal()">Cancel</button>'+
+        '<button class="btn" onclick="App.savePlanned(\''+p.id+'\')">Save</button>'+
+      '</div></div></div>';
+  },
+
+  slugify(s){
+    return String(s||'').toLowerCase()
+      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,80);
+  },
+
+  async savePlanned(id){
+    const i=this.queue.posts.findIndex(x=>x.id===id);
+    if(i<0) return;
+    const p=this.queue.posts[i];
+    const title=(this.gv('plTitle')||'').trim()||'Untitled planned article';
+    p.writer=this.gv('plWriter')||p.writer;
+    p.category=this.gv('plCat')||p.category;
+    p.title=title;
+    p.brief=(this.gv('plBrief')||'').trim();
+    if(typeof p.slug==='string'&&p.slug.indexOf('new-')===0){
+      const sl=this.slugify(title)||('planned-'+Date.now());
+      p.slug=sl; p.id=sl;
+    }
+    if(await this.saveQueue("planner: save planned "+p.slug)){
+      this.toast("Planned item saved.");
+      this.closeModal(); this.render();
+    }
+  },
+
+  async deletePlanned(id){
+    const i=this.queue.posts.findIndex(x=>x.id===id);
+    if(i<0) return;
+    if(!confirm("Delete this planned item?")) return;
+    const slug=this.queue.posts[i].slug||id;
+    this.queue.posts.splice(i,1);
+    if(await this.saveQueue("planner: delete planned "+slug)){
+      this.toast("Deleted.");
+      document.getElementById('modalHost').innerHTML='';
+      this.render();
+    }
+  },
+
+  async movePlanned(id,dir){
+    const posts=this.queue.posts;
+    const i=posts.findIndex(x=>x.id===id);
+    if(i<0) return;
+    /* find neighbour with same planned status */
+    let j=i+dir;
+    while(j>=0&&j<posts.length&&posts[j].status!=='planned') j+=dir;
+    if(j<0||j>=posts.length) return;
+    const tmp=posts[i]; posts[i]=posts[j]; posts[j]=tmp;
+    if(await this.saveQueue("planner: reorder planned ("+(dir<0?'up':'down')+" "+tmp.slug+")")){
+      this.render();
+    }
   },
 
   /* ════════ POST EDITOR ════════ */
