@@ -139,6 +139,24 @@
     margin-bottom:7px;width:100%;text-align:center}
   .addPlanBtn:hover{background:var(--card2);border-style:solid}
 
+  /* ── proposed sub-section ── */
+  .pcard.proposed{border:1px dashed rgba(212,167,69,0.5);border-left:1px dashed rgba(212,167,69,0.5)}
+  .pcard.proposed:hover{border-color:var(--gold);background:var(--card2)}
+  .proposedTag{display:inline-block;background:rgba(212,167,69,.13);color:var(--gold);
+    border:1px solid var(--line2);font-size:10px;font-weight:700;padding:1px 7px;
+    border-radius:10px;text-transform:uppercase;letter-spacing:.05em}
+  .proposedActions{display:flex;flex-direction:column;gap:4px;flex-shrink:0;margin-left:5px}
+  .proposedActions .btn{padding:5px 10px;font-size:11.5px;border-radius:6px;line-height:1.2;
+    white-space:nowrap}
+  .proposedHead{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+    color:var(--gold-dim);margin:4px 2px 6px;display:flex;align-items:center;gap:6px}
+  .proposedHead::before{content:"";flex:0 0 14px;height:1px;background:var(--line2)}
+  .proposedHead::after{content:"";flex:1;height:1px;background:var(--line2)}
+  .plannedHead{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;
+    color:var(--faint);margin:10px 2px 6px;display:flex;align-items:center;gap:6px}
+  .plannedHead::before{content:"";flex:0 0 14px;height:1px;background:var(--line)}
+  .plannedHead::after{content:"";flex:1;height:1px;background:var(--line)}
+
   /* ── modal ── */
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:40;display:flex;
          align-items:flex-start;justify-content:center;padding:34px 18px;overflow:auto}
@@ -402,9 +420,40 @@ const App={
   renderPipeline(){
     let h='';
 
-    /* Trajectory: planned items, in array order */
+    /* Trajectory: proposed (awaiting approval) and planned items */
+    const proposed=this.queue.posts.filter(p=>p.status==='proposed');
     const planned=this.queue.posts.filter(p=>p.status==='planned');
-    h+='<div class="grp"><div class="grp-h">Trajectory — upcoming<span class="n">'+planned.length+'</span></div>';
+    let countTxt='';
+    if(proposed.length&&planned.length){
+      countTxt=proposed.length+' awaiting approval, '+planned.length+' planned';
+    } else if(proposed.length){
+      countTxt=proposed.length+' awaiting approval';
+    } else {
+      countTxt=planned.length+' planned';
+    }
+    h+='<div class="grp"><div class="grp-h">Trajectory — upcoming<span class="n">'+countTxt+'</span></div>';
+
+    if(proposed.length){
+      h+='<div class="proposedHead">Awaiting approval</div>';
+      proposed.forEach(p=>{
+        const w=WRITERS[p.writer]||{name:p.writer,cls:'mv',initials:'?'};
+        h+='<div class="pcard plan proposed" onclick="App.openPlanned(\''+p.id+'\')">'+
+          '<div class="av av-'+w.cls+'">'+w.initials+'</div><div class="body">'+
+          '<div class="ptitle">'+this.esc(p.title)+'</div>'+
+          '<div class="pmeta"><span class="proposedTag">Awaiting approval</span>'+
+          '<span class="cat">'+this.esc(p.category||'')+'</span>'+
+          '<span>'+w.name+'</span></div>'+
+          (p.brief?'<div class="pbrief">'+this.esc(p.brief)+'</div>':'')+
+          '</div>'+
+          '<div class="proposedActions" onclick="event.stopPropagation()">'+
+            '<button class="btn sm" onclick="event.stopPropagation();App.approveProposed(\''+p.id+'\')" title="Approve, move to planned">Approve</button>'+
+            '<button class="btn ghost sm" onclick="event.stopPropagation();App.demoteProposed(\''+p.id+'\')" title="Remove from queue">Demote</button>'+
+          '</div>'+
+        '</div>';
+      });
+    }
+
+    if(proposed.length) h+='<div class="plannedHead">Planned</div>';
     h+='<button class="addPlanBtn" onclick="App.addPlanned()">+ Add planned</button>';
     if(!planned.length) h+='<div class="empty">Nothing planned yet.</div>';
     planned.forEach((p,idx)=>{
@@ -466,12 +515,16 @@ const App={
     const cats=['Theory','Process','Lyrics','Inspiration'];
     if(p.category&&cats.indexOf(p.category)<0) cats.unshift(p.category);
     const catOpts=cats.map(c=>'<option'+(c===p.category?' selected':'')+'>'+this.esc(c)+'</option>').join('');
+    const isProposed=p.status==='proposed';
+    const headTitle=isProposed?'Proposed article':'Planned article';
+    const statusMeta=isProposed
+      ?'<span>status: <b style="color:var(--gold)">proposed</b></span><span>awaiting approval</span>'
+      :'<span>status: <b style="color:var(--text)">planned</b></span><span>in the trajectory queue</span>';
     document.getElementById('modalHost').innerHTML=
       '<div class="scrim" onclick="if(event.target===this)App.closeModal()"><div class="modal">'+
       '<div class="modal-h"><div class="av av-'+w.cls+'">'+(w.initials||'?')+'</div>'+
-      '<div class="body"><h3>Planned article</h3>'+
-      '<div class="mm"><span>status: <b style="color:var(--text)">planned</b></span>'+
-      '<span>in the trajectory queue</span></div></div>'+
+      '<div class="body"><h3>'+headTitle+'</h3>'+
+      '<div class="mm">'+statusMeta+'</div></div>'+
       '<button class="xbtn" onclick="App.closeModal()">×</button></div>'+
       '<div class="modal-b">'+
         '<div class="fld"><label>Writer</label>'+
@@ -545,6 +598,37 @@ const App={
     const tmp=posts[i]; posts[i]=posts[j]; posts[j]=tmp;
     if(await this.saveQueue("planner: reorder planned ("+(dir<0?'up':'down')+" "+tmp.slug+")")){
       this.render();
+    }
+  },
+
+  async approveProposed(id){
+    const p=this.queue.posts.find(x=>x.id===id);
+    if(!p) return;
+    if(p.status!=='proposed') return;
+    p.status='planned';
+    if(await this.saveQueue("planner: approve proposed "+(p.slug||id))){
+      this.toast("Approved, moved to planned.");
+      this.render();
+    } else {
+      /* roll back on failure */
+      p.status='proposed';
+    }
+  },
+
+  async demoteProposed(id){
+    const i=this.queue.posts.findIndex(x=>x.id===id);
+    if(i<0) return;
+    const p=this.queue.posts[i];
+    if(p.status!=='proposed') return;
+    if(!confirm("Demote this proposed article? It will be removed from the queue.")) return;
+    const slug=p.slug||id;
+    this.queue.posts.splice(i,1);
+    if(await this.saveQueue("planner: demote proposed "+slug)){
+      this.toast("Removed from queue.");
+      this.render();
+    } else {
+      /* restore on failure */
+      this.queue.posts.splice(i,0,p);
     }
   },
 
